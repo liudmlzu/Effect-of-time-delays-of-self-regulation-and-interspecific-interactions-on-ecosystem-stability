@@ -1,0 +1,153 @@
+tic;
+%% parameters
+S=20;
+s=1;
+sigma=0.05;
+C=0.25;
+R=20;       % realizations
+N=20;
+Xlist=[0.5 1 2 3];
+taus=linspace(0,3,31);
+tauc=linspace(0,3,31);
+%% calculate
+result=zeros(length(Xlist),...
+             length(taus),...
+             length(tauc));
+for ix=1:length(Xlist)
+    Xstar=Xlist(ix);
+    fprintf('\n===== X*=%.1f =====\n',Xstar);
+    alpha=zeros(length(taus),length(tauc));
+    for a=1:length(taus)
+        for b=1:length(tauc)
+            ts=taus(a);
+            tc=tauc(b);
+            tmp=zeros(R,1);
+            for r=1:R
+                % generate interaction matrix
+                A=makeA(S,sigma,C);
+                % equilibrium-dependent matrices
+                Ms=-s*Xstar*eye(S);
+                Mc=Xstar*A;
+                tmp(r)=rightmostRoot(...
+                    Ms,Mc,ts,tc,N);
+            end
+            alpha(a,b)=mean(tmp);
+        end
+    end
+    result(ix,:,:)=alpha;
+end
+%% plot 逐个独立图，统一caxis
+cax_lim = [-1,1]; % 统一色标范围
+for ix=1:length(Xlist)
+    figure('Color','w','Position',[120 120 920 720]); % 每一张单独窗口
+    data=squeeze(result(ix,:,:));
+    imagesc(tauc,taus,data);
+    set(gca,'YDir','normal');
+    	colormap(jet);
+
+	cb=colorbar;
+	cb.Label.String='Re(z_1)';
+	cb.Label.FontSize=26;
+	cb.Label.FontName='Times New Roman';
+	cb.Label.FontWeight='bold';
+    
+    hold on
+    contour(tauc,taus,data,...
+        [0 0],...
+        'k',...
+        'LineWidth',2);
+    hold off
+    caxis(cax_lim); % 全部子图共用同一套颜色范围
+    title(sprintf('X^*=%.1f',Xlist(ix)),...
+        'FontSize',26,...
+		'FontName','Times New Roman',...
+		'FontWeight','bold');
+    xlabel('\tau_c',...
+		'FontSize',26,...
+		'FontName','Times New Roman',...
+		'FontWeight','bold');
+    ylabel('\tau_s',...
+		'FontSize',26,...
+		'FontName','Times New Roman',...
+		'FontWeight','bold');
+    set(gca,...
+		'FontSize',20,...
+		'FontName','Times New Roman',...
+		'FontWeight','bold');
+    axis square;
+  
+end
+%% ==============================
+% random matrix
+% ==============================
+function A=makeA(S,sigma,C)
+A=zeros(S);
+for i=1:S-1
+    for j=i+1:S
+        if rand<C
+            A(i,j)=sigma*randn;
+            A(j,i)=sigma*randn;
+        end
+    end
+end
+end
+%% ==============================
+% eigenvalue solver
+% ==============================
+function rho=rightmostRoot(Ms,Mc,ts,tc,N)
+S=size(Ms,1);
+tm=max([ts,tc,1e-8]);
+[x,D]=chebD(N);
+theta=tm*(x-1)/2;
+D=2/tm*D;
+ws=interpRow(theta,-ts);
+wc=interpRow(theta,-tc);
+G=zeros(S*(N+1));
+for k=1:N+1
+    G(1:S,...
+        (k-1)*S+1:k*S)=...
+        ws(k)*Ms+wc(k)*Mc;
+end
+for i=2:N+1
+    for k=1:N+1
+        G((i-1)*S+1:i*S,...
+        (k-1)*S+1:k*S)=...
+        D(i,k)*eye(S);
+    end
+end
+e=eig(G);
+rho=max(real(e));
+end
+%% ==============================
+% interpolation
+% ==============================
+function w=interpRow(x,x0)
+n=length(x);
+w=zeros(1,n);
+[~,id]=min(abs(x-x0));
+if abs(x(id)-x0)<1e-12
+    w(id)=1;
+    return
+end
+c=ones(1,n);
+for j=1:n
+    for k=1:n
+        if j~=k
+            c(j)=c(j)/(x(j)-x(k));
+        end
+    end
+end
+d=c./(x0-x(:)');
+w=d/sum(d);
+end
+%% ==============================
+% Chebyshev matrix
+% ==============================
+function [x,D]=chebD(N)
+x=cos(pi*(0:N)'/N);
+c=[2;ones(N-1,1);2].*(-1).^(0:N)';
+X=repmat(x,1,N+1);
+dX=X-X';
+D=(c*(1./c)')./(dX+eye(N+1));
+D=D-diag(sum(D,2));
+end
