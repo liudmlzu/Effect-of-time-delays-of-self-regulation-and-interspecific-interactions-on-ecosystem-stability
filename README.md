@@ -19,6 +19,9 @@ Explores how interaction strength \(\sigma\) shapes stability in random multi-sp
 **multi_species_systems**
 Implements the construction of random multi-species interaction networks and the core routine for stability phase diagrams.
 
+**multi_species_systems_with_X**
+Conducts equilibrium abundance sensitivity analysis for multi-species communities, reproducing Fig.6 in the Appendix.
+
 ## Usage
 
 1. Open the MATLAB scripts.
