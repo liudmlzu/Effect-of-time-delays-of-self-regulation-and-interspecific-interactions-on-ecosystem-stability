@@ -1,0 +1,356 @@
+function phase_diagram_delayed_LV_2species
+
+    %% =========================
+    % Fixed model parameters
+    %% =========================
+    r = [0.9; 0.7];      % equilibrium at (1,1)
+    s = [1; 1];
+
+    A = [0, 0.1;
+         0.3, 0];
+
+    t_perturb = 5;
+    T_end0    = 200;
+    T_extend  = 50;
+    max_ext   = 50;
+    y_pert    = [2; 2];
+
+    ext_thresh = 0.01;
+
+    %% =========================
+    % Classification parameters
+    %% =========================
+    tail_window   = 12;
+    n_tail        = 360;
+    n_blocks      = 6;
+    fp_amp_tol    = 2e-3;
+    fp_deriv_tol  = 2e-3;
+    lc_amp_tol    = 1e-2;
+    acf_thresh    = 0.92;
+    amp_cv_tol    = 0.20;
+
+    %% =========================
+    % Parameter grid
+    %% =========================
+    n_tau_s = 61;
+    n_tau_c = 61;
+
+    tau_s_vals = linspace(0.01, 3, n_tau_s);
+    tau_c_vals = linspace(0.01, 3, n_tau_c);
+
+    phase_map = zeros(n_tau_s, n_tau_c);
+
+    opts = ddeset('RelTol',1e-4,'AbsTol',1e-6);
+
+    %% =========================
+    % Scan
+    %% =========================
+    tic;
+    for i = 1:n_tau_s
+        tau_s = tau_s_vals(i);
+
+        for j = 1:n_tau_c
+            tau_c = tau_c_vals(j);
+
+            [lags, idx_s, idx_c] = build_lags(tau_s, tau_c);
+
+            try
+                history1 = @(t) [1; 1];
+
+                sol1 = dde23(@(t,y,Z) ddefun_core(t,y,Z,r,s,A,ext_thresh,idx_s,idx_c), ...
+                             lags, history1, [0, t_perturb], opts);
+
+                history2 = @(t) history_after_perturb(t, sol1, y_pert, t_perturb);
+
+                sol_current = dde23(@(t,y,Z) ddefun_core(t,y,Z,r,s,A,ext_thresh,idx_s,idx_c), ...
+                                    lags, history2, [t_perturb, T_end0], opts);
+
+                T_current = T_end0;
+                phase_type = 0;
+
+                for ext = 0:max_ext
+                    phase_type = classify_solution_precise( ...
+                        sol_current, T_current, tail_window, n_tail, n_blocks, ...
+                        ext_thresh, fp_amp_tol, fp_deriv_tol, ...
+                        lc_amp_tol, acf_thresh, amp_cv_tol, ...
+                        r, s, A, idx_s, idx_c, lags);
+
+                    if phase_type ~= 0
+                        break;
+                    end
+
+                    history_ext = @(t) deval(sol_current, t);
+
+                    sol_current = dde23(@(t,y,Z) ddefun_core(t,y,Z,r,s,A,ext_thresh,idx_s,idx_c), ...
+                                        lags, history_ext, [T_current, T_current + T_extend], opts);
+
+                    T_current = T_current + T_extend;
+                end
+
+                if phase_type == 0
+                    phase_type = 2;
+                end
+
+                phase_map(i,j) = phase_type;
+
+            catch
+                phase_map(i,j) = 2;
+            end
+        end
+
+        fprintf('Finished row %d / %d (elapsed %.1f s)\n', i, n_tau_s, toc);
+    end
+
+    %% =========================
+    % Plot
+    %% =========================
+    figure('Color','w','Position',[120 120 920 720]);
+
+    imagesc(tau_c_vals, tau_s_vals, phase_map);
+    set(gca, 'YDir', 'normal');
+
+    cmap = [0.20 0.70 0.20;
+            1.00 0.70 0.10;
+            0.60 0.60 0.60;
+            0.00 0.00 0.00];
+
+    colormap(cmap);
+    caxis([1 4]);
+
+    xlabel('\tau_c', ...
+        'FontSize', 26, ...
+        'FontName', 'Times New Roman', ...
+        'FontWeight', 'bold');
+
+    ylabel('\tau_s', ...
+        'FontSize', 26, ...
+        'FontName', 'Times New Roman', ...
+        'FontWeight', 'bold');
+
+    title('Phase diagram of delayed 2-species LV system', ...
+        'FontSize', 26, ...
+        'FontName', 'Times New Roman', ...
+        'FontWeight', 'bold');
+
+    cb = colorbar;
+    cb.Ticks = [1.375, 2.125, 2.875, 3.625];
+    cb.TickLabels = {'Stable fixed point', 'Limit cycle', ...
+                     'Partial extinction', 'Full extinction'};
+    cb.FontSize = 18;
+    cb.FontName = 'Times New Roman';
+    cb.FontWeight = 'bold';
+
+    set(gca, ...
+        'FontSize', 20, ...
+        'FontName', 'Times New Roman', ...
+        'FontWeight', 'bold');
+
+    xlim([0 1]);
+    ylim([0 1]);
+    box on;
+    grid off;
+
+end
+
+
+%% =========================================================
+% Build lag vector and indices
+%% =========================================================
+function [lags, idx_s, idx_c] = build_lags(tau_s, tau_c)
+
+    if abs(tau_s - tau_c) < 1e-12
+        lags = tau_s;
+        idx_s = 1;
+        idx_c = 1;
+    else
+        lags = sort([tau_s, tau_c]);
+
+        if tau_s < tau_c
+            idx_s = 1;
+            idx_c = 2;
+        else
+            idx_s = 2;
+            idx_c = 1;
+        end
+    end
+
+end
+
+
+%% =========================================================
+% Core DDE system
+%% =========================================================
+function dydt = ddefun_core(~, y, Z, r, s, A, ext_thresh, idx_s, idx_c)
+
+    y_tau_s = Z(:, idx_s);
+    y_tau_c = Z(:, idx_c);
+
+    y_eff = y;
+    y_tau_s_eff = y_tau_s;
+    y_tau_c_eff = y_tau_c;
+
+    y_eff(y_eff < ext_thresh) = 0;
+    y_tau_s_eff(y_tau_s_eff < ext_thresh) = 0;
+    y_tau_c_eff(y_tau_c_eff < ext_thresh) = 0;
+
+    S = length(y);
+    dydt = zeros(S,1);
+
+    for i = 1:S
+
+        if y_eff(i) == 0
+            dydt(i) = 0;
+            continue;
+        end
+
+        inter_term = 0;
+
+        for j = 1:S
+            if j ~= i
+                inter_term = inter_term + A(i,j) * y_tau_c_eff(j);
+            end
+        end
+
+        dydt(i) = y_eff(i) * ...
+            (r(i) - s(i) * y_tau_s_eff(i) + inter_term);
+    end
+
+end
+
+
+%% =========================================================
+% History function after perturbation
+%% =========================================================
+function h = history_after_perturb(t, sol1, y_pert, t_perturb)
+
+    if t < t_perturb
+        h = deval(sol1, t);
+    else
+        h = y_pert;
+    end
+
+end
+
+
+%% =========================================================
+% Precise numerical classification
+%
+% 0 = undecided
+% 1 = stable fixed point
+% 2 = limit cycle
+% 3 = partial extinction
+% 4 = full extinction
+%% =========================================================
+function phase_type = classify_solution_precise( ...
+    sol, T_end, tail_window, n_tail, n_blocks, ...
+    ext_thresh, fp_amp_tol, fp_deriv_tol, ...
+    lc_amp_tol, acf_thresh, amp_cv_tol, ...
+    r, s, A, idx_s, idx_c, lags)
+
+    phase_type = 0;
+
+    %% sample final window
+    t_start = max(sol.x(1), T_end - tail_window);
+    t_tail = linspace(t_start, T_end, n_tail);
+    y_tail = deval(sol, t_tail);
+
+    %% extinction check
+    y_final = y_tail(:, end);
+    alive = y_final >= ext_thresh;
+    n_alive = sum(alive);
+
+    if n_alive == 0
+        phase_type = 4;
+        return;
+    elseif n_alive < length(y_final)
+        phase_type = 3;
+        return;
+    end
+
+    %% fixed-point test
+    amp_species = max(y_tail, [], 2) - min(y_tail, [], 2);
+    max_amp = max(amp_species);
+
+    n_check = 25;
+    t_check = linspace(max(t_start, T_end - tail_window/2), T_end, n_check);
+    max_deriv = 0;
+
+    for m = 1:n_check
+        tm = t_check(m);
+        y_now = deval(sol, tm);
+
+        if numel(lags) == 1
+            Zm = deval(sol, tm - lags);
+        else
+            Zm = [deval(sol, tm - lags(1)), ...
+                  deval(sol, tm - lags(2))];
+        end
+
+        dydt_now = ddefun_core(tm, y_now, Zm, r, s, A, ext_thresh, idx_s, idx_c);
+        max_deriv = max(max_deriv, max(abs(dydt_now)));
+    end
+
+    if (max_amp < fp_amp_tol) && (max_deriv < fp_deriv_tol)
+        phase_type = 1;
+        return;
+    end
+
+    %% limit-cycle test
+    [~, dom] = max(amp_species);
+    x = y_tail(dom, :);
+    x = x - mean(x);
+
+    if (max(x) - min(x)) < lc_amp_tol
+        phase_type = 0;
+        return;
+    end
+
+    minLag = max(5, round(0.05 * n_tail));
+    maxLag = min(round(0.50 * n_tail), n_tail - 10);
+
+    rho_max = -Inf;
+    bestLag = NaN;
+
+    for lag = minLag:maxLag
+        x1 = x(1:end-lag)';
+        x2 = x(1+lag:end)';
+
+        c = corrcoef(x1, x2);
+
+        if all(size(c) == [2,2]) && ~any(isnan(c(:)))
+            rho = c(1,2);
+
+            if rho > rho_max
+                rho_max = rho;
+                bestLag = lag;
+            end
+        end
+    end
+
+    if isnan(bestLag) || (rho_max < acf_thresh)
+        phase_type = 0;
+        return;
+    end
+
+    %% envelope constancy
+    block_edges = round(linspace(1, n_tail + 1, n_blocks + 1));
+    amp_blocks = zeros(n_blocks,1);
+
+    for k = 1:n_blocks
+        i1 = block_edges(k);
+        i2 = block_edges(k+1) - 1;
+        xb = x(i1:i2);
+        amp_blocks(k) = max(xb) - min(xb);
+    end
+
+    amp_mean = mean(amp_blocks);
+    amp_cv = std(amp_blocks) / max(amp_mean, 1e-12);
+
+    if (amp_mean > lc_amp_tol) && (amp_cv < amp_cv_tol)
+        phase_type = 2;
+        return;
+    end
+
+    phase_type = 0;
+
+end
