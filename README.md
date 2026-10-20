@@ -1,4 +1,6 @@
-Effect-of-time-delays-of-self-regulation-and-interspecific-interactions-on-ecosystem-stability
+## Effect-of-time-delays-of-self-regulation-and-interspecific-interactions-on-ecosystem-stability
+
+This project contains MATLAB scripts to simulate delayed generalized Lotka–Volterra ecological dynamics. The scripts evaluate system stability under two distinct time delays and generate phase diagrams and population time-series plots.
 
 ## Scripts
 
