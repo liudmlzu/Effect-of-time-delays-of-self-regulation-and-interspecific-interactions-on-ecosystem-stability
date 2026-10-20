@@ -24,6 +24,28 @@ Conducts equilibrium abundance sensitivity analysis for multi-species communitie
 
 ## Usage
 
-1. Open the MATLAB scripts.
-2. Adjust parameters such as delay ranges, interaction strength, and species number.
-3. Run the scripts to compute stability and generate figures.
+1. Modify model parameters as needed: delay ranges, self‑regulation strength s, interaction magnitude, connectance C, species number S, equilibrium abundance.
+2. Run the script to solve delay‑differential equations or compute leading eigenvalues.
+3. Output stability phase diagrams or population time‑series figures.
+
+## Model setup
+
+We study generalized Lotka‑Volterra systems incorporating **self‑regulation delay (tau_s)** and **interspecific interaction delay (tau_c)**.
+
+- X_i(t): Population abundance of species i
+- tau_s: Self‑regulation delay, accounts for intraspecific time lags such as maturation, reproduction and density‑dependent feedback. Population growth depends on its own past abundance.
+- tau_c: Interspecific interaction delay, describes time lags of species interaction effects including predation response, competition and mutualism. Species respond to other species’ past population states.
+- s: Magnitude of intraspecific self‑regulation.
+- A_ij: Interaction matrix. Different sign combinations define community types: predator‑prey (+/‑), competition (‑/‑), mutualism (+/+), and random mixed interactions.
+- r_i: Intrinsic growth rate, solved self‑consistently to guarantee feasible co‑existence equilibrium.
+
+System stability is quantified by the real part of the leading eigenvalue obtained from linearized delay‑differential equations:
+
+- Leading eigenvalue real part < 0: the coexistence equilibrium is locally stable
+- Leading eigenvalue real part > 0: the coexistence equilibrium is unstable
+- Leading eigenvalue real part = 0: critical Hopf bifurcation boundary
+
+## Notes on reproduction
+
+- Intrinsic growth rates r_i are solved self‑consistently given the co‑existence equilibrium condition.
+- Multi‑species results are averaged over multiple random realizations to reduce sampling noise.
