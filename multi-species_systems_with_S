@@ -1,0 +1,211 @@
+tic;
+
+s=1;
+sigma=0.05;
+C=0.2;
+R=20;          
+N=20;
+
+ts=0.5;         
+tc=1;       
+
+Ss=10:10:200;  
+
+types={'random','predation','competition','mutualism'};
+names={'Random','+/-','-/-','+/+'};
+
+alpha=zeros(length(types),length(Ss));
+
+total=length(types)*length(Ss)*R;
+cnt=0;
+
+for q=1:length(types)
+
+	type=types{q};
+
+	for a=1:length(Ss)
+
+		S=Ss(a);
+		tmp=zeros(R,1);
+
+		for r=1:R
+
+			A=makeA(S,sigma,C,type);
+			Ms=-s*eye(S);
+			Mc=A;
+
+			tmp(r)=rightmostRoot(Ms,Mc,ts,tc,N);
+
+			cnt=cnt+1;
+
+			if mod(cnt,10)==0 || cnt==1 || cnt==total
+				elapsed=toc;
+				avgTime=elapsed/cnt;
+				remainTime=avgTime*(total-cnt);
+
+				fprintf(['Type: %s | S %d (%d/%d) | R %d/%d | ',...
+					'Progress %.2f%% | Elapsed %.2f min | Remaining %.2f min\n'],...
+					type,S,a,length(Ss),r,R,...
+					100*cnt/total,elapsed/60,remainTime/60);
+			end
+		end
+
+		alpha(q,a)=mean(tmp);
+	end
+end
+
+figure('Color','w','Position',[120 120 920 720]);
+
+hold on;
+
+plot(Ss,alpha(1,:),'-o','LineWidth',2.5,'MarkerSize',8);
+plot(Ss,alpha(2,:),'-s','LineWidth',2.5,'MarkerSize',8);
+plot(Ss,alpha(3,:),'-^','LineWidth',2.5,'MarkerSize',8);
+plot(Ss,alpha(4,:),'-d','LineWidth',2.5,'MarkerSize',8);
+
+yline(0,'k--','LineWidth',2);
+
+hold off;
+
+xlabel('Species number S',...
+	'FontSize',26,...
+	'FontName','Times New Roman',...
+	'FontWeight','bold');
+
+ylabel('Re(z_1)',...
+	'FontSize',26,...
+	'FontName','Times New Roman',...
+	'FontWeight','bold');
+
+title('\tau_s=1, \tau_c=0.5',...
+	'FontSize',26,...
+	'FontName','Times New Roman',...
+	'FontWeight','bold');
+
+legend(names,...
+	'Location','best',...
+	'FontSize',20,...
+	'FontName','Times New Roman',...
+	'FontWeight','bold');
+
+set(gca,...
+	'FontSize',20,...
+	'FontName','Times New Roman',...
+	'FontWeight','bold');
+
+box on;
+grid off;
+axis square;
+
+ylim([-1 1]);
+
+function A=makeA(S,sigma,C,type)
+
+	A=zeros(S);
+
+	for i=1:S-1
+		for j=i+1:S
+			if rand<C
+
+				a=sigma*randn;
+				b=sigma*randn;
+
+				switch type
+
+					case 'random'
+						A(i,j)=a;
+						A(j,i)=b;
+
+					case 'predation'
+						if rand<0.5
+							A(i,j)=abs(a);
+							A(j,i)=-abs(b);
+						else
+							A(i,j)=-abs(a);
+							A(j,i)=abs(b);
+						end
+
+					case 'competition'
+						A(i,j)=-abs(a);
+						A(j,i)=-abs(b);
+
+					case 'mutualism'
+						A(i,j)=abs(a);
+						A(j,i)=abs(b);
+				end
+			end
+		end
+	end
+end
+
+function rho=rightmostRoot(Ms,Mc,ts,tc,N)
+
+	S=size(Ms,1);
+	tm=max([ts,tc,1e-8]);
+
+	[x,D]=chebD(N);
+	theta=tm*(x-1)/2;
+	D=2/tm*D;
+
+	ws=interpRow(theta,-ts);
+	wc=interpRow(theta,-tc);
+
+	G=zeros(S*(N+1));
+
+	for k=1:N+1
+		G(1:S,(k-1)*S+1:k*S)=ws(k)*Ms+wc(k)*Mc;
+	end
+
+	for i=2:N+1
+		for k=1:N+1
+			G((i-1)*S+1:i*S,(k-1)*S+1:k*S)=D(i,k)*eye(S);
+		end
+	end
+
+	e=eig(G);
+	rho=max(real(e));
+end
+
+function w=interpRow(x,x0)
+
+	n=length(x);
+	w=zeros(1,n);
+
+	[~,id]=min(abs(x-x0));
+
+	if abs(x(id)-x0)<1e-12
+		w(id)=1;
+		return;
+	end
+
+	c=ones(1,n);
+
+	for j=1:n
+		for k=1:n
+			if k~=j
+				c(j)=c(j)/(x(j)-x(k));
+			end
+		end
+	end
+
+	d=c./(x0-x(:)');
+	w=d/sum(d);
+end
+
+function [x,D]=chebD(N)
+
+	if N==0
+		x=1;
+		D=0;
+		return;
+	end
+
+	x=cos(pi*(0:N)'/N);
+	c=[2;ones(N-1,1);2].*(-1).^(0:N)';
+
+	X=repmat(x,1,N+1);
+	dX=X-X';
+
+	D=(c*(1./c)')./(dX+eye(N+1));
+	D=D-diag(sum(D,2));
+end
