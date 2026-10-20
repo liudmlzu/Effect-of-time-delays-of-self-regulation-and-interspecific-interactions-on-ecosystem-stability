@@ -1,0 +1,163 @@
+function delayed_LV_2species_perturbation
+
+    %% =========================
+    %  Parameters
+    % ==========================
+    S = 2;                      % number of species
+    tau_s = 0.9;                % delay of self-regulation
+    tau_c = 0.10;                % delay of interspecific interaction
+    lags = [tau_s, tau_c];
+
+%     r = [1.1; 1.3];      
+% 
+%     s = [1; 1];
+% 
+%     A = [0, -0.1;
+%       -0.3, 0];
+
+    r = [-0.2; 0.2];      
+
+    s = [1; 1];
+
+    A = [0, 1.2;
+      0.8, 0];
+
+
+
+
+    % simulation settings
+    t_perturb = 5;              % perturbation time
+    T_end = 500;                % final time
+
+    %% =========================
+    %  Stage 1: before perturbation
+    %  history is constant = 1
+    % ==========================
+    history1 = @(t) [1; 1];
+
+    sol1 = dde23(@(t,y,Z) ddefun(t,y,Z,r,s,A), ...
+                 lags, history1, [0, t_perturb]);
+
+    %% =========================
+    %  Instantaneous perturbation
+    %  set all abundances to 2
+    % ==========================
+    y_pert = [2; 2];
+
+    %% =========================
+    %  Stage 2: after perturbation
+    % ==========================
+    history2 = @(t) history_after_perturb(t, sol1, y_pert, t_perturb);
+
+    sol2 = dde23(@(t,y,Z) ddefun(t,y,Z,r,s,A), ...
+                 lags, history2, [t_perturb, T_end]);
+
+    %% =========================
+    %  Merge solution for plotting
+    % ==========================
+    t1 = linspace(0, t_perturb, 300);
+    y1 = deval(sol1, t1);
+
+    t2 = linspace(t_perturb, T_end, 1200);
+    y2 = deval(sol2, t2);
+
+    %% =========================
+    %  Plot
+    % ==========================
+    figure('Color','w','Position',[120 120 800 600]);
+    hold on;
+
+    plot(t1, y1(1,:), 'Color', [129 189 80]/255, 'LineWidth', 2);
+    plot(t1, y1(2,:), 'Color', [241 176 24]/255, 'LineWidth', 2);
+
+    plot(t2, y2(1,:), 'Color', [129 189 80]/255, 'LineWidth', 2);
+    plot(t2, y2(2,:), 'Color', [241 176 24]/255, 'LineWidth', 2);
+
+    xline(t_perturb, '--k', 'LineWidth', 1.5);
+
+    xlabel('Time', ...
+           'FontSize', 26, ...
+           'FontName', 'Times New Roman', ...
+           'FontWeight', 'bold');
+
+    ylabel('Abundance', ...
+           'FontSize', 26, ...
+           'FontName', 'Times New Roman', ...
+           'FontWeight', 'bold');
+
+    title(sprintf('\\tau_s = %.2f, \\tau_c = %.2f', tau_s, tau_c), ...
+          'FontSize', 26, ...
+          'FontName', 'Times New Roman', ...
+          'FontWeight', 'bold');
+
+    legend({'Species 1','Species 2'}, ...
+           'Location','best', ...
+           'FontSize', 20, ...
+           'FontName', 'Times New Roman');
+
+    set(gca, ...
+        'FontSize', 20, ...
+        'FontName', 'Times New Roman', ...
+        'FontWeight', 'bold');
+
+    xlim([0 T_end]);
+    ylim([0 3]);
+
+    grid off;
+    box on;
+end
+
+
+%% =========================================================
+%  DDE system
+% ==========================================================
+function dydt = ddefun(~, y, Z, r, s, A)
+
+    y_tau_s = Z(:,1);
+    y_tau_c = Z(:,2);
+
+    % extinction threshold
+    ext_thresh = 0.01;
+
+    y_eff = y;
+    y_tau_s_eff = y_tau_s;
+    y_tau_c_eff = y_tau_c;
+
+    y_eff(y_eff < ext_thresh) = 0;
+    y_tau_s_eff(y_tau_s_eff < ext_thresh) = 0;
+    y_tau_c_eff(y_tau_c_eff < ext_thresh) = 0;
+
+    S = length(y);
+    dydt = zeros(S,1);
+
+    for i = 1:S
+
+        % once extinct, remain extinct
+        if y_eff(i) == 0
+            dydt(i) = 0;
+            continue;
+        end
+
+        inter_term = 0;
+        for j = 1:S
+            if j ~= i
+                inter_term = inter_term + A(i,j) * y_tau_c_eff(j);
+            end
+        end
+
+        dydt(i) = y_eff(i) * ...
+                  ( r(i) - s(i)*y_tau_s_eff(i) + inter_term );
+    end
+end
+
+
+%% =========================================================
+%  History function after perturbation
+% ==========================================================
+function h = history_after_perturb(t, sol1, y_pert, t_perturb)
+    if t < t_perturb
+        h = deval(sol1, t);
+    else
+        h = y_pert;
+    end
+end
